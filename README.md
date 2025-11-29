@@ -29,36 +29,43 @@ An AI-powered coding assistant CLI tool using Groq API. Helps with software engi
 npm install
 ```
 
-### 2. Set Up Groq API Key
-
-Get your API key from [Groq Console](https://console.groq.com/)
-
-Then set it as an environment variable:
-
-**Windows (CMD):**
-```cmd
-setx GROQ_API_KEY "your_api_key_here"
-```
-
-**Windows (PowerShell):**
-```powershell
-$env:GROQ_API_KEY = "your_api_key_here"
-```
-
-**Linux/Mac:**
-```bash
-export GROQ_API_KEY="your_api_key_here"
-```
-
-Add to your shell profile (~/.bashrc, ~/.zshrc, etc.) to make it permanent.
-
-### 3. Install Globally
+### 2. Install Globally
 
 ```bash
 npm link
 ```
 
 Now you can use `grc` from anywhere in your terminal!
+
+### 3. Set Up Groq API Key
+
+Get your API key from [Groq Console](https://console.groq.com/keys)
+
+**Option A: Interactive Setup (Recommended)**
+
+Just run `grc` and it will prompt you for your API key on first use:
+
+```bash
+grc
+```
+
+**Option B: Save Key Using Config Command**
+
+```bash
+grc config --set-key your_api_key_here
+```
+
+**Option C: Use Environment Variable**
+
+```bash
+# Windows PowerShell
+$env:GROQ_API_KEY = "your_api_key_here"
+
+# Linux/Mac
+export GROQ_API_KEY="your_api_key_here"
+```
+
+The key is stored locally in `~/.grc/config.json` (never sent anywhere except Groq API)
 
 ## Usage
 
@@ -115,7 +122,18 @@ grc --api-key your_api_key_here
 
 Use with `grc --experimental`
 
-## Commands
+## Configuration Commands
+
+Manage your API key and settings:
+
+```bash
+grc config --set-key <key>   # Save your API key
+grc config --show-key         # Show stored key (masked)
+grc config --clear            # Clear all configuration
+grc config --path             # Show config file location
+```
+
+## Chat Commands
 
 While in the chat:
 - Type your message and press Enter to chat

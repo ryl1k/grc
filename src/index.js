@@ -29,7 +29,10 @@ async function startChat(apiKey, model, options = {}) {
   const useAutoModel = options.autoModel !== false;
   const useExperimental = options.experimental || false;
 
-  const client = new GroqClient(apiKey, model);
+  // If model is 'auto', use a default model for initialization
+  const initialModel = model === 'auto' ? 'llama-3.3-70b-versatile' : model;
+
+  const client = new GroqClient(apiKey, initialModel);
   client.setSystemPrompt(SYSTEM_PROMPT);
 
   const chatOptions = { useAutoModel, useExperimental, userModel: model };
