@@ -38,7 +38,23 @@ class GroqClient {
       const response = await this.client.chat.completions.create(requestParams);
       const assistantMessage = response.choices[0].message;
 
-      this.conversationHistory.push(assistantMessage);
+      // Only keep allowed fields to avoid API errors (like unsupported 'reasoning' field)
+      const cleanMessage = {
+        role: assistantMessage.role,
+        content: assistantMessage.content || null
+      };
+
+      // Add tool_calls if present
+      if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        cleanMessage.tool_calls = assistantMessage.tool_calls;
+      }
+
+      // Add name if present
+      if (assistantMessage.name) {
+        cleanMessage.name = assistantMessage.name;
+      }
+
+      this.conversationHistory.push(cleanMessage);
 
       return {
         content: assistantMessage.content,

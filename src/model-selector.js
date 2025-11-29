@@ -5,16 +5,17 @@
 
 const MODELS = {
   // Heavy models for complex tasks (reasoning, code generation, debugging)
+  // Using models that support function/tool calling
   HEAVY: {
-    primary: 'openai/gpt-oss-120b',           // 120B parameters, best reasoning
-    fallback: 'llama-3.3-70b-versatile',      // 70B parameters, great for coding
+    primary: 'llama-3.3-70b-versatile',      // 70B parameters, great for coding + tools
+    fallback: 'llama3-groq-70b-8192-tool-use-preview',  // Groq tool-use optimized
     experimental: 'meta-llama/llama-4-maverick-17b-128e-instruct'  // Latest Llama 4
   },
 
   // Light models for simple tasks (file operations, quick responses)
   LIGHT: {
-    primary: 'openai/gpt-oss-20b',            // 20B parameters, very fast
-    fallback: 'llama-3.1-8b-instant',         // 8B parameters, fastest
+    primary: 'llama-3.1-8b-instant',         // 8B parameters, fastest + tools
+    fallback: 'llama3-groq-8b-8192-tool-use-preview',  // Groq tool-use optimized
     experimental: 'meta-llama/llama-4-scout-17b-16e-instruct'  // Fast Llama 4
   },
 
@@ -104,12 +105,14 @@ function selectModel(message, toolCalls = [], userPreference = null, useExperime
  */
 function getModelInfo(modelId) {
   const modelInfo = {
-    'openai/gpt-oss-120b': { name: 'GPT-OSS 120B', type: 'Heavy', speed: '500 tok/s' },
-    'openai/gpt-oss-20b': { name: 'GPT-OSS 20B', type: 'Light', speed: '1000 tok/s' },
     'llama-3.3-70b-versatile': { name: 'Llama 3.3 70B', type: 'Heavy', speed: '280 tok/s' },
     'llama-3.1-8b-instant': { name: 'Llama 3.1 8B', type: 'Light', speed: '560 tok/s' },
+    'llama3-groq-70b-8192-tool-use-preview': { name: 'Llama 3 Groq 70B Tool', type: 'Heavy', speed: '300 tok/s' },
+    'llama3-groq-8b-8192-tool-use-preview': { name: 'Llama 3 Groq 8B Tool', type: 'Light', speed: '800 tok/s' },
     'meta-llama/llama-4-maverick-17b-128e-instruct': { name: 'Llama 4 Maverick', type: 'Heavy', speed: '600 tok/s' },
     'meta-llama/llama-4-scout-17b-16e-instruct': { name: 'Llama 4 Scout', type: 'Light', speed: '750 tok/s' },
+    'openai/gpt-oss-120b': { name: 'GPT-OSS 120B', type: 'Heavy', speed: '500 tok/s' },
+    'openai/gpt-oss-20b': { name: 'GPT-OSS 20B', type: 'Light', speed: '1000 tok/s' },
     'groq/compound': { name: 'Groq Compound', type: 'Agentic', speed: 'Variable' }
   };
 
