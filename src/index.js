@@ -2,28 +2,52 @@ const readline = require('readline');
 const chalk = require('chalk');
 const ora = require('ora');
 const GroqClient = require('./groq-client');
-const { toolDefinitions, toolExecutors } = require('./tools');
+const { toolExecutors } = require('./tools');
 const { selectModel, getModelInfo } = require('./model-selector');
+const { parseToolCommands, removeToolCommands } = require('./tool-parser');
 
 const SYSTEM_PROMPT = `You are GRC (Groq Code Assistant), an AI coding assistant powered by Groq. You help users with software engineering tasks.
 
-You have access to the following tools:
-- Read: Read files from the filesystem
-- Write: Create or overwrite files
-- Edit: Perform exact string replacements in files
-- Bash: Execute shell commands
-- Glob: Find files matching patterns
-- Grep: Search for patterns in files
+You have access to the following tools that you can use by outputting tool commands:
 
-When helping users:
-1. Use tools to explore and modify code
-2. Always read files before editing them
-3. Be concise and direct in your responses
-4. Execute commands and make changes proactively
-5. Explain what you're doing and why
+**Available Tools:**
+
+1. **Read** - Read a file from the filesystem
+   <tool name="Read" file_path="/path/to/file" />
+
+2. **Write** - Create or overwrite a file
+   <tool name="Write" file_path="/path/to/file" content="file content here" />
+
+3. **Edit** - Replace text in a file
+   <tool name="Edit" file_path="/path/to/file" old_string="text to replace" new_string="replacement text" />
+
+4. **Bash** - Execute a shell command
+   <tool name="Bash" command="your command here" />
+
+5. **Glob** - Find files matching a pattern
+   <tool name="Glob" pattern="**/*.js" path="/optional/search/path" />
+
+6. **Grep** - Search for text in files
+   <tool name="Grep" pattern="search pattern" path="/path/to/search" file_type="js" />
+
+**How to use tools:**
+1. Think step by step about what you need to do
+2. Output tool commands using the <tool /> format shown above
+3. You can use multiple tools in one response
+4. Explain what you're doing before using tools
+5. Wait for tool results, then continue based on the results
+
+**Important:**
+- ALWAYS read files before editing them
+- Use Glob to find files when you don't know exact paths
+- Use Grep to search for code patterns
+- Break down complex tasks into steps
+- Explain your reasoning and plan
 
 Current working directory: ${process.cwd()}
-Platform: ${process.platform}`;
+Platform: ${process.platform}
+
+Remember: Output tool commands as XML tags like <tool name="Read" file_path="..." />, and I will execute them for you.`;
 
 async function startChat(apiKey, model, options = {}) {
   const useAutoModel = options.autoModel !== false;
@@ -91,26 +115,40 @@ async function processUserMessage(client, userMessage, rl, options = {}) {
   let spinner = ora('Thinking...').start();
 
   try {
-    let response = await client.chat(userMessage, toolDefinitions, selectedModel);
+    // Call Groq WITHOUT tools parameter (manual tool execution)
+    let response = await client.chat(userMessage, [], selectedModel);
     let iterationCount = 0;
     const maxIterations = 10;
 
     while (iterationCount < maxIterations) {
       spinner.stop();
 
-      if (response.content) {
-        console.log(chalk.blue('\nAssistant: ') + response.content + '\n');
-      }
-
-      if (!response.toolCalls || response.toolCalls.length === 0) {
+      if (!response.content) {
         break;
       }
 
-      spinner = ora('Executing tools...').start();
+      // Check if response contains tool commands
+      const toolCommands = parseToolCommands(response.content);
+      const cleanResponse = removeToolCommands(response.content);
 
-      for (const toolCall of response.toolCalls) {
-        const toolName = toolCall.function.name;
-        const toolArgs = JSON.parse(toolCall.function.arguments);
+      // Display AI response (without tool commands)
+      if (cleanResponse && cleanResponse.length > 0) {
+        console.log(chalk.blue('\nAssistant: ') + cleanResponse + '\n');
+      }
+
+      // If no tools to execute, we're done
+      if (toolCommands.length === 0) {
+        break;
+      }
+
+      // Execute tools manually
+      spinner = ora('Executing tools...').start();
+      const toolResults = [];
+
+      for (const toolCmd of toolCommands) {
+        const toolName = toolCmd.name;
+        const toolArgs = { ...toolCmd };
+        delete toolArgs.name; // Remove 'name' from args
 
         spinner.text = `Executing ${toolName}...`;
 
@@ -143,20 +181,28 @@ async function processUserMessage(client, userMessage, rl, options = {}) {
           }
           console.log();
 
-          client.addToolResult(toolCall.id, toolName, result);
+          toolResults.push({
+            tool: toolName,
+            args: toolArgs,
+            result: result
+          });
+
           spinner = ora('Processing...').start();
         } else {
           spinner.stop();
           console.log(chalk.red(`\nUnknown tool: ${toolName}\n`));
-          client.addToolResult(toolCall.id, toolName, {
-            success: false,
-            error: `Unknown tool: ${toolName}`
+          toolResults.push({
+            tool: toolName,
+            args: toolArgs,
+            result: { success: false, error: `Unknown tool: ${toolName}` }
           });
           spinner = ora('Processing...').start();
         }
       }
 
-      response = await client.chat('', toolDefinitions);
+      // Send tool results back to AI
+      const resultsMessage = formatToolResults(toolResults);
+      response = await client.chat(resultsMessage, [], selectedModel);
       iterationCount++;
     }
 
@@ -172,6 +218,35 @@ async function processUserMessage(client, userMessage, rl, options = {}) {
   }
 
   rl.prompt();
+}
+
+function formatToolResults(toolResults) {
+  let message = 'Tool execution results:\n\n';
+
+  for (const tr of toolResults) {
+    message += `Tool: ${tr.tool}\n`;
+    message += `Arguments: ${JSON.stringify(tr.args)}\n`;
+
+    if (tr.result.success) {
+      message += `Status: Success\n`;
+      if (tr.result.content) {
+        message += `Content:\n${tr.result.content}\n`;
+      } else if (tr.result.files) {
+        message += `Files found (${tr.result.count}):\n${tr.result.files.join('\n')}\n`;
+      } else if (tr.result.message) {
+        message += `Message: ${tr.result.message}\n`;
+      } else if (tr.result.combined) {
+        message += `Output:\n${tr.result.combined}\n`;
+      }
+    } else {
+      message += `Status: Error\n`;
+      message += `Error: ${tr.result.error}\n`;
+    }
+
+    message += '\n---\n\n';
+  }
+
+  return message;
 }
 
 module.exports = { startChat };
