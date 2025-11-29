@@ -5,61 +5,99 @@ const GroqClient = require('./groq-client');
 const { toolExecutors } = require('./tools');
 const { selectModel, getModelInfo } = require('./model-selector');
 const { parseToolCommands, removeToolCommands } = require('./tool-parser');
+const ContextManager = require('./context-manager');
+const { summarizeToolResult, createDetailedSummary } = require('./summarizer');
+const UIManager = require('./ui-manager');
 
-const SYSTEM_PROMPT = `You are GRC (Groq Code Assistant), an AI coding assistant powered by Groq. You help users with software engineering tasks.
+const REASONING_PROMPT = `You are GRC (Groq Code Assistant), a reasoning AI that plans and analyzes coding tasks.
 
-You have access to the following tools that you can use by outputting tool commands:
+Your job is to:
+1. **Understand** the user's request
+2. **See what's there** - ALWAYS start by listing directory structure
+3. **Analyze** what you found
+4. **Plan** based on actual files that exist
+5. **Execute** intelligently
+6. **Provide** final answers when complete
+
+You have access to these tools (output as XML tags):
 
 **Available Tools:**
+- <tool name="Bash" command="shell command" />
+- <tool name="Glob" pattern="**/*.js" path="/optional/path" />
+- <tool name="Read" file_path="/path/to/file" />
+- <tool name="Write" file_path="/path/to/file" content="content here" />
+- <tool name="Edit" file_path="/path" old_string="old" new_string="new" />
+- <tool name="Grep" pattern="search" path="/path" file_type="js" />
 
-1. **Read** - Read a file from the filesystem
-   <tool name="Read" file_path="/path/to/file" />
+**MANDATORY WORKFLOW FOR CODE REVIEW:**
+Step 1: "Let me see the directory structure first"
+<tool name="Bash" command="ls -R" />
+OR on Windows: <tool name="Bash" command="dir /s /b" />
 
-2. **Write** - Create or overwrite a file
-   <tool name="Write" file_path="/path/to/file" content="file content here" />
+(Wait for results, analyze the structure)
 
-3. **Edit** - Replace text in a file
-   <tool name="Edit" file_path="/path/to/file" old_string="text to replace" new_string="replacement text" />
+Step 2: Based on what you saw, decide what files to explore
+<tool name="Read" file_path="exact/path/you/saw.java" />
 
-4. **Bash** - Execute a shell command
-   <tool name="Bash" command="your command here" />
+Step 3: Continue exploring based on findings
 
-5. **Glob** - Find files matching a pattern
-   <tool name="Glob" pattern="**/*.js" path="/optional/search/path" />
+**CRITICAL RULES:**
+1. **ALWAYS START WITH DIR/LS** - See what exists before planning
+2. **ONE STEP AT A TIME** - Wait for results between steps
+3. **NO GUESSING** - Use actual paths from dir output
+4. **CONSUME CONTEXT** - Read the directory listing, understand it
+5. **BE SMART** - Don't try *.js, *.ts, *.py randomly - look first!
 
-6. **Grep** - Search for text in files
-   <tool name="Grep" pattern="search pattern" path="/path/to/search" file_type="js" />
+**Example for code review:**
+Step 1: "Let me see what files exist"
+<tool name="Bash" command="ls -la" />
 
-**How to use tools:**
-1. Think step by step about what you need to do
-2. Output tool commands using the <tool /> format shown above
-3. You can use multiple tools in one response
-4. Explain what you're doing before using tools
-5. Wait for tool results, then continue based on the results
+Result shows: pom.xml, src/, README.md
+Analysis: "This is a Java Maven project"
+
+Step 2: "Let me see the src structure"
+<tool name="Bash" command="find . -name '*.java' | head -20" />
+
+Result shows exact Java files
+Analysis: "Main.java is the entry point"
+
+Step 3: "Let me read Main.java"
+<tool name="Read" file_path="./src/Main.java" />
+
+Continue intelligently...
 
 **Important:**
-- ALWAYS read files before editing them
-- Use Glob to find files when you don't know exact paths
-- Use Grep to search for code patterns
-- Break down complex tasks into steps
-- Explain your reasoning and plan
+- NEVER blindly try different file patterns
+- ALWAYS start by seeing what's actually there
+- Consume the full context before deciding next steps
+- When done, say "TASK COMPLETE"
 
-Current working directory: ${process.cwd()}
-Platform: ${process.platform}
+Working directory: ${process.cwd()}
+Platform: ${process.platform}`;
 
-Remember: Output tool commands as XML tags like <tool name="Read" file_path="..." />, and I will execute them for you.`;
+const WORKER_PROMPT = `You are a tool execution assistant. Your job is to execute tool commands reliably.
+
+Parse tool commands and ensure they're properly formatted. Don't add commentary, just execute.`;
 
 async function startChat(apiKey, model, options = {}) {
   const useAutoModel = options.autoModel !== false;
   const useExperimental = options.experimental || false;
 
-  // If model is 'auto', use a default model for initialization
-  const initialModel = model === 'auto' ? 'llama-3.3-70b-versatile' : model;
+  // Create two clients: reasoning and worker
+  const reasoningModel = useAutoModel
+    ? selectModel('complex reasoning task', [], null, useExperimental)
+    : (model === 'auto' ? 'llama-3.3-70b-versatile' : model);
 
-  const client = new GroqClient(apiKey, initialModel);
-  client.setSystemPrompt(SYSTEM_PROMPT);
+  const workerModel = 'llama-3.1-8b-instant'; // Fast model for tool execution
 
-  const chatOptions = { useAutoModel, useExperimental, userModel: model };
+  const reasoningClient = new GroqClient(apiKey, reasoningModel);
+  const workerClient = new GroqClient(apiKey, workerModel);
+
+  reasoningClient.setSystemPrompt(REASONING_PROMPT);
+  workerClient.setSystemPrompt(WORKER_PROMPT);
+
+  const contextManager = new ContextManager();
+  const uiManager = new UIManager();
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -67,7 +105,14 @@ async function startChat(apiKey, model, options = {}) {
     prompt: chalk.green('You: ')
   });
 
-  console.log(chalk.gray('Type your message and press Enter. Type "exit" or "quit" to exit.\n'));
+  // Setup Ctrl+O handler for expanding tool outputs
+  uiManager.setupExpandHandler(rl);
+
+  console.log(chalk.gray('Type your message. Press Ctrl+O <section_id> to expand tool outputs. Type "exit" to quit.\n'));
+
+  const reasoningModelInfo = getModelInfo(reasoningModel);
+  console.log(chalk.gray(`Reasoning Model: ${reasoningModelInfo.name}`));
+  console.log(chalk.gray(`Worker Model: ${getModelInfo(workerModel).name}\n`));
 
   rl.prompt();
 
@@ -85,14 +130,24 @@ async function startChat(apiKey, model, options = {}) {
     }
 
     if (userInput.toLowerCase() === 'clear') {
-      client.clearHistory();
-      client.setSystemPrompt(SYSTEM_PROMPT);
-      console.log(chalk.yellow('Conversation history cleared.\n'));
+      reasoningClient.clearHistory();
+      workerClient.clearHistory();
+      contextManager.clear();
+      reasoningClient.setSystemPrompt(REASONING_PROMPT);
+      workerClient.setSystemPrompt(WORKER_PROMPT);
+      console.log(chalk.yellow('Context cleared.\n'));
       rl.prompt();
       return;
     }
 
-    await processUserMessage(client, userInput, rl, chatOptions);
+    await processUserMessage(
+      reasoningClient,
+      workerClient,
+      userInput,
+      contextManager,
+      uiManager,
+      rl
+    );
   });
 
   rl.on('close', () => {
@@ -101,109 +156,93 @@ async function startChat(apiKey, model, options = {}) {
   });
 }
 
-async function processUserMessage(client, userMessage, rl, options = {}) {
-  const { useAutoModel, useExperimental, userModel } = options;
-
-  // Select model based on task complexity
-  let selectedModel = null;
-  if (useAutoModel) {
-    selectedModel = selectModel(userMessage, [], userModel === 'auto' ? null : userModel, useExperimental);
-    const modelInfo = getModelInfo(selectedModel);
-    console.log(chalk.gray(`Using: ${modelInfo.name} (${modelInfo.type} - ${modelInfo.speed})\n`));
-  }
-
-  let spinner = ora('Thinking...').start();
+async function processUserMessage(reasoningClient, workerClient, userMessage, contextManager, uiManager, rl) {
+  let spinner = ora('Reasoning...').start();
 
   try {
-    // Call Groq WITHOUT tools parameter (manual tool execution)
-    let response = await client.chat(userMessage, [], selectedModel);
+    // Add user message to context
+    contextManager.addUserMessage(userMessage);
+
     let iterationCount = 0;
     const maxIterations = 10;
+    let taskComplete = false;
 
-    while (iterationCount < maxIterations) {
+    while (iterationCount < maxIterations && !taskComplete) {
+      // Step 1: Reasoning model plans and decides
+      spinner.text = 'Thinking...';
+      const reasoningResponse = await reasoningClient.chat(userMessage, []);
       spinner.stop();
 
-      if (!response.content) {
+      if (!reasoningResponse.content) {
         break;
       }
 
-      // Check if response contains tool commands
-      const toolCommands = parseToolCommands(response.content);
-      const cleanResponse = removeToolCommands(response.content);
-
-      // Display AI response (without tool commands)
-      if (cleanResponse && cleanResponse.length > 0) {
-        console.log(chalk.blue('\nAssistant: ') + cleanResponse + '\n');
+      // Check if task is complete
+      if (reasoningResponse.content.includes('TASK COMPLETE')) {
+        taskComplete = true;
       }
 
-      // If no tools to execute, we're done
+      // Extract tool commands and reasoning
+      const toolCommands = parseToolCommands(reasoningResponse.content);
+      const reasoningText = removeToolCommands(reasoningResponse.content);
+
+      // Display reasoning
+      if (reasoningText && reasoningText.length > 0) {
+        uiManager.showReasoningStep('Plan', reasoningText);
+      }
+
+      contextManager.addReasoningResponse(reasoningText);
+
+      // If no tools, we're done
       if (toolCommands.length === 0) {
+        if (!taskComplete) {
+          console.log(chalk.blue('\nAssistant: ') + reasoningText + '\n');
+        }
         break;
       }
 
-      // Execute tools manually
-      spinner = ora('Executing tools...').start();
-      const toolResults = [];
+      // Step 2: Execute tools
+      uiManager.showProgress(`Executing ${toolCommands.length} tool(s)...`);
 
+      const toolResults = [];
       for (const toolCmd of toolCommands) {
         const toolName = toolCmd.name;
         const toolArgs = { ...toolCmd };
-        delete toolArgs.name; // Remove 'name' from args
-
-        spinner.text = `Executing ${toolName}...`;
+        delete toolArgs.name;
 
         if (toolExecutors[toolName]) {
+          spinner = ora(`Executing ${toolName}...`).start();
           const result = await toolExecutors[toolName](toolArgs);
-
           spinner.stop();
-          console.log(chalk.yellow(`\n[Tool: ${toolName}]`));
-          console.log(chalk.gray(JSON.stringify(toolArgs, null, 2)));
 
-          if (result.success) {
-            console.log(chalk.green('✓ Success'));
-            if (result.content) {
-              const preview = result.content.substring(0, 500);
-              console.log(chalk.gray(preview + (result.content.length > 500 ? '...' : '')));
-            } else if (result.message) {
-              console.log(chalk.gray(result.message));
-            } else if (result.combined) {
-              const preview = result.combined.substring(0, 500);
-              console.log(chalk.gray(preview + (result.combined.length > 500 ? '...' : '')));
-            } else if (result.files) {
-              console.log(chalk.gray(`Found ${result.count} files`));
-              result.files.slice(0, 20).forEach(f => console.log(chalk.gray(`  - ${f}`)));
-              if (result.files.length > 20) {
-                console.log(chalk.gray(`  ... and ${result.files.length - 20} more`));
-              }
-            }
-          } else {
-            console.log(chalk.red('✗ Error: ' + result.error));
-          }
-          console.log();
+          const summary = summarizeToolResult(toolName, toolArgs, result);
+
+          // Show in UI with expandable option
+          uiManager.showToolExecution(toolName, toolArgs, result, summary);
+
+          // Add to context
+          contextManager.addToolExecution(toolName, toolArgs, result, summary);
 
           toolResults.push({
             tool: toolName,
             args: toolArgs,
-            result: result
+            result: result,
+            summary: summary
           });
-
-          spinner = ora('Processing...').start();
         } else {
           spinner.stop();
           console.log(chalk.red(`\nUnknown tool: ${toolName}\n`));
-          toolResults.push({
-            tool: toolName,
-            args: toolArgs,
-            result: { success: false, error: `Unknown tool: ${toolName}` }
-          });
-          spinner = ora('Processing...').start();
         }
       }
 
-      // Send tool results back to AI
-      const resultsMessage = formatToolResults(toolResults);
-      response = await client.chat(resultsMessage, [], selectedModel);
+      // Step 3: Summarize results
+      const detailedSummary = createDetailedSummary(toolResults);
+
+      // Step 4: Feed summary back to reasoning model
+      userMessage = `Tool execution results:\n${detailedSummary}\n\nBased on these results, what should we do next?`;
+
       iterationCount++;
+      spinner = ora('Analyzing results...').start();
     }
 
     spinner.stop();
@@ -215,38 +254,10 @@ async function processUserMessage(client, userMessage, rl, options = {}) {
   } catch (error) {
     spinner.stop();
     console.log(chalk.red(`\nError: ${error.message}\n`));
+    console.error(error);
   }
 
   rl.prompt();
-}
-
-function formatToolResults(toolResults) {
-  let message = 'Tool execution results:\n\n';
-
-  for (const tr of toolResults) {
-    message += `Tool: ${tr.tool}\n`;
-    message += `Arguments: ${JSON.stringify(tr.args)}\n`;
-
-    if (tr.result.success) {
-      message += `Status: Success\n`;
-      if (tr.result.content) {
-        message += `Content:\n${tr.result.content}\n`;
-      } else if (tr.result.files) {
-        message += `Files found (${tr.result.count}):\n${tr.result.files.join('\n')}\n`;
-      } else if (tr.result.message) {
-        message += `Message: ${tr.result.message}\n`;
-      } else if (tr.result.combined) {
-        message += `Output:\n${tr.result.combined}\n`;
-      }
-    } else {
-      message += `Status: Error\n`;
-      message += `Error: ${tr.result.error}\n`;
-    }
-
-    message += '\n---\n\n';
-  }
-
-  return message;
 }
 
 module.exports = { startChat };

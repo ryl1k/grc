@@ -231,11 +231,12 @@ async function executeBash(args) {
 async function executeGlob(args) {
   try {
     const searchPath = args.path || process.cwd();
-    const fullPattern = path.join(searchPath, args.pattern);
 
-    const files = await fastGlob(fullPattern, {
+    // Use cwd option instead of path.join for cross-platform compatibility
+    const files = await fastGlob(args.pattern, {
+      cwd: searchPath,
       dot: true,
-      absolute: false,
+      absolute: true,  // Return absolute paths
       onlyFiles: true
     });
 

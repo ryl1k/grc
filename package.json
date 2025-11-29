@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node bin/grc.js",
-    "link": "npm link"
+    "link": "npm link",
+    "ai-fix": "node scripts/ai-fix.js"
   },
   "keywords": ["cli", "ai", "groq", "code-assistant"],
   "author": "",
@@ -20,6 +21,8 @@
     "commander": "^11.1.0",
     "glob": "^10.3.10",
     "fast-glob": "^3.3.2",
-    "ora": "^5.4.1"
+    "ora": "^5.4.1",
+    "marked": "^4.3.0",
+    "marked-terminal": "^5.2.0"
   }
 }
