@@ -5,7 +5,7 @@ const GroqClient = require('./groq-client');
 const { toolDefinitions, toolExecutors } = require('./tools');
 const { selectModel, getModelInfo } = require('./model-selector');
 
-const SYSTEM_PROMPT = `You are GCode, an AI coding assistant powered by Groq. You help users with software engineering tasks.
+const SYSTEM_PROMPT = `You are GRC (Groq Code Assistant), an AI coding assistant powered by Groq. You help users with software engineering tasks.
 
 You have access to the following tools:
 - Read: Read files from the filesystem

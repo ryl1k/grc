@@ -1,7 +1,7 @@
 {
   "name": "grc-cli",
   "version": "1.0.0",
-  "description": "A Claude Code clone using Groq API",
+  "description": "AI-powered coding assistant CLI using Groq API",
   "main": "src/index.js",
   "bin": {
     "grc": "./bin/grc.js"

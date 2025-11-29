@@ -1,6 +1,6 @@
-# GCode - AI Coding Assistant
+# GRC - Groq Code Assistant
 
-A Claude Code clone powered by Groq API. An interactive CLI tool that helps with software engineering tasks using AI.
+An AI-powered coding assistant CLI tool using Groq API. Helps with software engineering tasks through an interactive command-line interface.
 
 ## Features
 
@@ -145,7 +145,7 @@ The tool analyzes your message to determine complexity:
 ```bash
 $ grc
 
-🚀 GCode - AI Coding Assistant powered by Groq
+🚀 GRC - Groq Code Assistant
 
 Model Selection: Auto (intelligent selection based on task complexity)
 Working directory: /your/project

@@ -22,7 +22,7 @@ program
       process.exit(1);
     }
 
-    console.log(chalk.cyan('🚀 GCode - AI Coding Assistant powered by Groq\n'));
+    console.log(chalk.cyan('🚀 GRC - Groq Code Assistant\n'));
 
     if (options.model === 'auto') {
       console.log(chalk.gray('Model Selection: Auto (intelligent selection based on task complexity)'));
