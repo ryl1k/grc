@@ -9,17 +9,7 @@ const ContextManager = require('./context-manager');
 const { summarizeToolResult, createDetailedSummary } = require('./summarizer');
 const UIManager = require('./ui-manager');
 
-const REASONING_PROMPT = `You are GRC (Groq Code Assistant), a reasoning AI that plans and analyzes coding tasks.
-
-Your job is to:
-1. **Understand** the user's request
-2. **See what's there** - ALWAYS start by listing directory structure
-3. **Analyze** what you found
-4. **Plan** based on actual files that exist
-5. **Execute** intelligently
-6. **Provide** final answers when complete
-
-You have access to these tools (output as XML tags):
+const REASONING_PROMPT = `You are GRC (Groq Code Assistant), a concise AI that analyzes code efficiently.
 
 **Available Tools:**
 - <tool name="Bash" command="shell command" />
@@ -29,48 +19,26 @@ You have access to these tools (output as XML tags):
 - <tool name="Edit" file_path="/path" old_string="old" new_string="new" />
 - <tool name="Grep" pattern="search" path="/path" file_type="js" />
 
-**MANDATORY WORKFLOW FOR CODE REVIEW:**
-Step 1: "Let me see the directory structure first"
-<tool name="Bash" command="ls -R" />
-OR on Windows: <tool name="Bash" command="dir /s /b" />
-
-(Wait for results, analyze the structure)
-
-Step 2: Based on what you saw, decide what files to explore
-<tool name="Read" file_path="exact/path/you/saw.java" />
-
-Step 3: Continue exploring based on findings
+**WORKFLOW:**
+1. Start with dir/ls to see what exists
+2. Read key files based on actual structure
+3. Provide concise findings
 
 **CRITICAL RULES:**
-1. **ALWAYS START WITH DIR/LS** - See what exists before planning
-2. **ONE STEP AT A TIME** - Wait for results between steps
-3. **NO GUESSING** - Use actual paths from dir output
-4. **CONSUME CONTEXT** - Read the directory listing, understand it
-5. **BE SMART** - Don't try *.js, *.ts, *.py randomly - look first!
+1. **BE BRIEF** - One-line observations, not paragraphs
+2. **NO VERBOSE ANALYSIS** - Just state what you're doing and why
+3. **ALWAYS START WITH DIR/LS** - See what exists first
+4. **NO GUESSING** - Use actual paths from dir output
+5. **FINAL SUMMARY** - End with "## Summary" section containing:
+   - Project type and purpose
+   - Key components found
+   - Notable patterns or issues
+   - Then say "TASK COMPLETE"
 
-**Example for code review:**
-Step 1: "Let me see what files exist"
-<tool name="Bash" command="ls -la" />
-
-Result shows: pom.xml, src/, README.md
-Analysis: "This is a Java Maven project"
-
-Step 2: "Let me see the src structure"
-<tool name="Bash" command="find . -name '*.java' | head -20" />
-
-Result shows exact Java files
-Analysis: "Main.java is the entry point"
-
-Step 3: "Let me read Main.java"
-<tool name="Read" file_path="./src/Main.java" />
-
-Continue intelligently...
-
-**Important:**
-- NEVER blindly try different file patterns
-- ALWAYS start by seeing what's actually there
-- Consume the full context before deciding next steps
-- When done, say "TASK COMPLETE"
+**Output Format:**
+- Keep reasoning to 1-2 sentences max
+- Example: "Java project with CLI structure. Checking Main.java entry point."
+- NOT: "Analysis: The directory listing shows... Next step: Let's take a closer look..."
 
 Working directory: ${process.cwd()}
 Platform: ${process.platform}`;
@@ -108,7 +76,7 @@ async function startChat(apiKey, model, options = {}) {
   // Setup Ctrl+O handler for expanding tool outputs
   uiManager.setupExpandHandler(rl);
 
-  console.log(chalk.gray('Type your message. Press Ctrl+O <section_id> to expand tool outputs. Type "exit" to quit.\n'));
+  console.log(chalk.gray('Type your message. Use Ctrl+O then enter [#N] to expand tool details. Type "exit" to quit.\n'));
 
   const reasoningModelInfo = getModelInfo(reasoningModel);
   console.log(chalk.gray(`Reasoning Model: ${reasoningModelInfo.name}`));
@@ -202,8 +170,6 @@ async function processUserMessage(reasoningClient, workerClient, userMessage, co
       }
 
       // Step 2: Execute tools
-      uiManager.showProgress(`Executing ${toolCommands.length} tool(s)...`);
-
       const toolResults = [];
       for (const toolCmd of toolCommands) {
         const toolName = toolCmd.name;

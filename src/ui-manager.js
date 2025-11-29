@@ -15,15 +15,11 @@ class UIManager {
   showToolExecution(toolName, args, result, summary) {
     const sectionId = this.sectionCounter++;
 
-    console.log(chalk.yellow(`\n[Tool: ${toolName}]`));
-    console.log(chalk.gray(`Command: ${JSON.stringify(args)}`));
-
+    // More compact tool output
     if (result.success) {
-      console.log(chalk.green('✓ Success'));
-      console.log(chalk.gray(`Summary: ${summary}`));
+      console.log(chalk.green(`  ✓ ${toolName}`) + chalk.gray(`: ${summary}`) + chalk.dim(` [#${sectionId}]`));
     } else {
-      console.log(chalk.red('✗ Error'));
-      console.log(chalk.red(result.error));
+      console.log(chalk.red(`  ✗ ${toolName}`) + chalk.gray(`: ${result.error}`) + chalk.dim(` [#${sectionId}]`));
     }
 
     // Store full result for expansion
@@ -33,8 +29,6 @@ class UIManager {
       result,
       summary
     });
-
-    console.log(chalk.dim(`(Press Ctrl+O and enter ${sectionId} to see full output)\n`));
 
     return sectionId;
   }
@@ -75,17 +69,29 @@ class UIManager {
   }
 
   showReasoningStep(step, content) {
-    console.log(chalk.magenta(`\n[Reasoning: ${step}]`));
+    // Show reasoning in a more compact format
+    const lines = content.trim().split('\n');
 
-    // Render markdown if content contains markdown
-    if (isMarkdown(content)) {
-      const rendered = renderMarkdown(content);
-      console.log(rendered);
-    } else {
-      console.log(chalk.white(content));
+    // If it's a short message (1-2 lines), show inline
+    if (lines.length <= 2 && content.length < 150) {
+      console.log(chalk.gray(`→ ${content.trim()}`));
+      return;
     }
 
-    console.log();
+    // For longer content, check if it's a summary
+    if (content.includes('## Summary') || content.includes('TASK COMPLETE')) {
+      console.log(chalk.cyan('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+      if (isMarkdown(content)) {
+        const rendered = renderMarkdown(content);
+        console.log(rendered);
+      } else {
+        console.log(chalk.white(content));
+      }
+      console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+    } else {
+      // Regular reasoning - show compactly
+      console.log(chalk.gray(`→ ${content.trim()}`));
+    }
   }
 
   showProgress(message) {
