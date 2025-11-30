@@ -9,8 +9,12 @@ function summarizeToolResult(toolName, args, result) {
 
   switch (toolName) {
     case 'Read':
-      const lineCount = result.lineCount || 0;
-      return `Read ${args.file_path} (${lineCount} lines)`;
+      const fullLines = result.fullFileLines || result.lineCount || 0;
+      const limited = result.limitedTo;
+      if (limited) {
+        return `Read ${args.file_path} (${limited}/${fullLines} lines, truncated to save tokens)`;
+      }
+      return `Read ${args.file_path} (${fullLines} lines)`;
 
     case 'Write':
       return `Created/updated ${args.file_path}`;

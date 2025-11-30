@@ -16,100 +16,59 @@ Your role:
 - START: Create brief exploration plan for the codebase
 - END: Create comprehensive summary of findings
 
+**CRITICAL: NEVER HALLUCINATE!**
+- If context shows "Successfully read 0 files" or no files were read: Say "Unable to create summary - no files were successfully read"
+- ONLY create summary based on ACTUAL files that were read
+- If you don't have real data, say so explicitly
+
 Be strategic and thoughtful.`;
 
-const LIGHT_MODEL_PROMPT = `You are GRC (Groq Code Assistant), a tool execution AI.
+const LIGHT_MODEL_PROMPT = `You are GRC Tool Executor. Your ONLY job: execute tools using exact paths from context.
 
-**YOU MUST USE TOOLS BY OUTPUTTING XML TAGS - NOT BY DESCRIBING THEM!**
-
-**Available Tools (OUTPUT THESE EXACT XML FORMATS):**
-- <tool name="Bash" command="dir /s /b" />
-- <tool name="Glob" pattern="**/*.js" path="/optional/path" />
-- <tool name="Read" file_path="/absolute/path/to/file" />
-- <tool name="Write" file_path="/path/to/file" content="content here" />
-- <tool name="Edit" file_path="/path" old_string="old" new_string="new" />
-- <tool name="Grep" pattern="search" path="/path" file_type="js" />
-
-**CRITICAL: DO NOT HALLUCINATE!**
-You will receive tool results BEFORE generating your response.
-- ONLY mention files that appear in the actual tool results
-- If a Read failed with "ENOENT", that file DOES NOT EXIST - don't mention it!
-- If dir output doesn't show a file, it DOESN'T EXIST
-- DO NOT output fake "Directory Listing Results" or "Reading Results" - those come from tools!
-- Your job: Look at ACTUAL tool results, then decide next tools to use
-
-**STRICT OUTPUT FORMAT:**
-1. One sentence observation based ONLY on actual results you received
-2. Tool commands (XML tags) for next step
-3. NOTHING ELSE - no predictions, no fake results, no commentary about future steps
-
-**CRITICAL: HOW TO USE TOOLS**
-❌ WRONG: "Using Bash to list directory" or "Checking Main.java"
-✅ RIGHT: <tool name="Bash" command="dir /s /b" />
-❌ WRONG: Guessing paths like "src\Wagon.java"
-✅ RIGHT: Using exact paths from dir output like "A:\path\src\model\Wagon.java"
-
-**WORKFLOW:**
-1. First response: Output <tool name="Bash" command="dir /s /b" /> (or "ls -R" on Unix)
-2. WAIT for results, READ the actual file paths returned
-3. Based on ACTUAL paths from step 2, read key files
-4. **BATCH TOOLS** - Output 2-3 tool commands at once:
-   - Use exact paths from previous results
-   - Don't predict what you'll find - just use the tools
-5. After each batch, WAIT and READ the results
-6. If any Read fails, check dir output for correct path
-7. Keep exploring until you've successfully read multiple files
-8. Only output tool commands and brief observations - no predictions
-
-**RULES:**
-1. **OUTPUT XML TAGS** - Don't describe tools, use them!
-2. **BE BRIEF** - One-line observations only
-3. **START WITH DIR** - Always begin with directory listing
-4. **USE ACTUAL RESULTS** - NEVER make up files or paths:
-   - If tool returns data, READ IT and use exact values
-   - If Read fails, the file doesn't exist - don't mention it in summary
-   - Only summarize files you SUCCESSFULLY read
-5. **ERROR RECOVERY** - If Read fails:
-   - Check the dir listing again for correct path
-   - The file might be in a subdirectory
-   - Don't just skip it - find the correct path
-6. **NEVER GIVE UP** - If grep/glob returns 0 results:
-   - Use Bash to list specific directories (e.g., "dir src\model")
-   - Read files you see in the directory listing
-   - Try different search patterns
-7. **EXPLORE THOROUGHLY** - Read multiple files to understand patterns
-8. **FINAL SUMMARY REQUIREMENTS** - Only create summary when:
-   - You've successfully read at least 5 files
-   - You understand the actual architecture (not guessed)
-   - You have real findings from actual code
-   - NO hallucinated files or components
-   - Then output "## Summary" section with detailed findings
-   - Then say "TASK COMPLETE"
-
-**Example First Message:**
-Starting exploration.
+**Available Tools:**
 <tool name="Bash" command="dir /s /b" />
+<tool name="Read" file_path="/absolute/path" />  ← Auto-limited to first 50 lines to save tokens
+<tool name="Glob" pattern="**/*.java" />
+<tool name="Grep" pattern="search" path="/path" />
 
-**Example Second Message (AFTER receiving dir results showing A:\repo\src\Main.java, A:\repo\src\model\Train.java):**
-Dir shows Main.java and model package. Reading entry point and Train class.
-<tool name="Read" file_path="A:\\repo\\src\\Main.java" />
-<tool name="Read" file_path="A:\\repo\\src\\model\\Train.java" />
+**CRITICAL RULES:**
+1. **USE EXACT PATHS** - Context shows you actual file paths. Use them EXACTLY.
+   ❌ WRONG: <tool name="Read" file_path="A:\\path\\Main.java" /> (guessed path)
+   ✅ RIGHT: Use the EXACT path from the "Files in Dir" section of your context
 
-**WRONG Example (DO NOT DO THIS):**
-❌ **Directory Listing Results:** A:\repo\src\Main.java... (This is fake! Don't create fake results!)
-❌ **Reading Results:** Successfully read 3 files (You don't know this yet!)
-❌ Reading DataParser.java for parsing logic (If you didn't see it in dir, it doesn't exist!)
+2. **NEVER HALLUCINATE** - Only use files shown in your context under "Files in Dir"
+   - If file not in "Files in Dir", it doesn't exist
+   - If in "Failed (don't retry)", NEVER try to read it again
 
-**Example When Read Fails:**
-Read of DataParser.java failed - file doesn't exist. Continuing with files that do exist.
+3. **BATCH TOOLS** - Output 2-3 Read commands per response to explore efficiently
+
+4. **FILES ARE AUTO-TRUNCATED** - Read only returns first 50 lines (enough to understand structure)
+   - Don't worry about large files - they're automatically limited
+   - Focus on reading multiple files to understand architecture
+
+5. **OUTPUT FORMAT:**
+   [One brief observation about context]
+   <tool name="..." file_path="EXACT_PATH_FROM_CONTEXT" />
+   <tool name="..." file_path="EXACT_PATH_FROM_CONTEXT" />
+
+**Example Context You'll Receive:**
+Task: review codebase
+Files in Dir (29 total, showing 10):
+A:\\repo\\src\\Main.java
+A:\\repo\\src\\model\\Train.java
+A:\\repo\\src\\model\\Wagon.java
+
+Read (last 5):
+Main.java
+Train.java
+
+**Your Response Should Be:**
+Reading Wagon and checking service layer.
 <tool name="Read" file_path="A:\\repo\\src\\model\\Wagon.java" />
+<tool name="Read" file_path="A:\\repo\\src\\service\\TrainService.java" />
 
 Working directory: ${process.cwd()}
 Platform: ${process.platform}`;
-
-const WORKER_PROMPT = `You are a tool execution assistant. Your job is to execute tool commands reliably.
-
-Parse tool commands and ensure they're properly formatted. Don't add commentary, just execute.`;
 
 async function startChat(apiKey, model, options = {}) {
   const useAutoModel = options.autoModel !== false;
@@ -245,6 +204,7 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
     const maxIterations = 25;
     let taskComplete = false;
     let useLightModel = true; // Start with light model for exploration
+    const checkStopEveryN = 5; // Ask heavy model if we should stop every N iterations
 
     // FIRST: Heavy model creates exploration plan (iteration 0 only)
     if (iterationCount === 0) {
@@ -301,6 +261,19 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
           name: 'Bash',
           command: process.platform === 'win32' ? 'dir /s /b' : 'ls -R'
         }];
+      }
+
+      // CRITICAL: If light model used Glob but we have no files in context, run Bash
+      if (iterationCount === 1 && toolCommands.some(cmd => cmd.name === 'Glob')) {
+        const hasFiles = contextManager.compressedContext &&
+                        contextManager.compressedContext.filesFound.length > 0;
+        if (!hasFiles) {
+          console.log(chalk.yellow('⚠️  Glob doesn\'t provide paths for Read. Running dir instead...\n'));
+          toolCommands = [{
+            name: 'Bash',
+            command: process.platform === 'win32' ? 'dir /s /b' : 'ls -R'
+          }];
+        }
       }
 
       // Check if we should switch to heavy model for summary
@@ -378,13 +351,36 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
         }
       }
 
-      // Step 3: Update context based on model type
-      if (useLightModel) {
-        // Light model: compressed context already updated via addToolExecution
-        // No need to create detailed summary - it has compressed context
+      // Step 3: Check if we should stop (ask heavy model periodically)
+      if (useLightModel && iterationCount > 0 && iterationCount % checkStopEveryN === 0) {
+        spinner = ora('🔶 Heavy model checking if we have enough context...').start();
+
+        const currentContext = contextManager.getCurrentContext();
+        const stopCheckPrompt = `${currentContext}\n\nBased on the files we've explored so far, do we have enough information to create a comprehensive codebase summary?\n\nRespond with ONLY one word:\n- "STOP" if we have enough context\n- "CONTINUE" if we need to explore more files`;
+
+        const stopCheckResponse = await heavyClient.chat(stopCheckPrompt, []);
+        spinner.stop();
+
+        const decision = stopCheckResponse.content.trim().toUpperCase();
+
+        if (decision.includes('STOP')) {
+          console.log(chalk.yellow('\n🔶 Heavy model decided: enough context gathered. Creating summary...\n'));
+          useLightModel = false; // Switch to heavy for final summary
+          userMessage = `Based on all the files explored, create a comprehensive codebase summary with:\n- Project type and purpose\n- Architecture and key components\n- Notable patterns or issues\n\nThen say TASK COMPLETE.`;
+        } else {
+          console.log(chalk.gray('🔹 Heavy model decided: continue exploring\n'));
+          // Continue with light model
+          lightClient.clearHistory();
+          lightClient.setSystemPrompt(LIGHT_MODEL_PROMPT);
+          userMessage = `Continue exploration based on compressed context.`;
+        }
+      } else if (useLightModel) {
+        // Light model: CLEAR HISTORY to prevent token overflow!
+        lightClient.clearHistory();
+        lightClient.setSystemPrompt(LIGHT_MODEL_PROMPT);
         userMessage = `Continue exploration based on compressed context.`;
       } else {
-        // Heavy model: provide detailed summary
+        // Heavy model: keep full history and provide detailed summary
         const detailedSummary = createDetailedSummary(toolResults);
         userMessage = `Tool execution results:\n${detailedSummary}\n\nBased on these results, what should we do next?`;
       }

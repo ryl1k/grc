@@ -98,19 +98,19 @@ class ContextManager {
   // === Compressed Context (Layer 3) ===
 
   updateCompressedContext(toolName, args, result) {
-    // Keep only last 3 tool results for light model
+    // Keep only last 2 tool results for light model (was 3, now 2 to save tokens)
     this.compressedContext.recentToolResults.push({
       tool: toolName,
       success: result.success,
       summary: this.createCompressedSummary(toolName, args, result)
     });
 
-    // Keep only last 3
-    if (this.compressedContext.recentToolResults.length > 3) {
+    // Keep only last 2
+    if (this.compressedContext.recentToolResults.length > 2) {
       this.compressedContext.recentToolResults.shift();
     }
 
-    // Track files
+    // Track files from Bash (dir) or Glob
     if (toolName === 'Bash' && result.success) {
       // Extract file paths from dir listing
       const output = result.combined || result.stdout || '';
@@ -119,7 +119,10 @@ class ContextManager {
         (line.includes('.java') || line.includes('.js') || line.includes('.py') ||
          line.includes('.ts') || line.includes('.json') || line.includes('.xml'))
       );
-      this.compressedContext.filesFound = files.slice(0, 50); // Keep first 50
+      this.compressedContext.filesFound = files.slice(0, 15); // Keep first 15 only
+    } else if (toolName === 'Glob' && result.success && result.files) {
+      // Add Glob results to files found!
+      this.compressedContext.filesFound = result.files.slice(0, 15);
     }
 
     if (toolName === 'Read') {
@@ -146,7 +149,13 @@ class ContextManager {
 
     switch (toolName) {
       case 'Read':
-        return `Read ${args.file_path.split('\\').pop()} (${result.lineCount} lines)`;
+        const filename = args.file_path.split('\\').pop();
+        const fullLines = result.fullFileLines || result.lineCount || 0;
+        const limited = result.limitedTo;
+        if (limited) {
+          return `Read ${filename} (${limited}/${fullLines} lines)`;
+        }
+        return `Read ${filename} (${fullLines} lines)`;
       case 'Bash':
         const output = result.combined || result.stdout || '';
         const lineCount = output.split('\n').length;
@@ -161,29 +170,36 @@ class ContextManager {
   }
 
   getCompressedContext() {
-    // Minimal context for light model - prevents hallucination
+    // ULTRA-MINIMAL context for light model - prevents token limit errors
+    // BUT shows FULL PATHS so light model can use exact paths
     let context = `Task: ${this.compressedContext.taskGoal}\n\n`;
 
-    context += `Files Found in Directory (${this.compressedContext.filesFound.length}):\n`;
-    this.compressedContext.filesFound.slice(0, 30).forEach(f => {
-      context += `- ${f}\n`;
+    // Show 10 files with FULL PATHS (light model needs exact paths)
+    context += `Files in Dir (${this.compressedContext.filesFound.length} total, showing 10):\n`;
+    this.compressedContext.filesFound.slice(0, 10).forEach(f => {
+      context += `${f}\n`; // FULL PATH, not just filename
     });
 
+    // Show last 5 successful reads with filenames only (for tracking)
     if (this.compressedContext.filesRead.length > 0) {
-      context += `\nSuccessfully Read:\n`;
-      this.compressedContext.filesRead.forEach(f => {
-        context += `- ${f}\n`;
+      context += `\nRead (last 5):\n`;
+      this.compressedContext.filesRead.slice(-5).forEach(f => {
+        const filename = f.split('\\').pop();
+        context += `${filename}\n`;
       });
     }
 
+    // Show last 3 failed reads with filenames only
     if (this.compressedContext.filesFailed.length > 0) {
-      context += `\nFailed Reads (DO NOT RETRY THESE):\n`;
-      this.compressedContext.filesFailed.forEach(f => {
-        context += `- ${f}\n`;
+      context += `\nFailed (don't retry):\n`;
+      this.compressedContext.filesFailed.slice(-3).forEach(f => {
+        const filename = f.split('\\').pop();
+        context += `${filename}\n`;
       });
     }
 
-    context += `\nLast 3 Tool Results:\n`;
+    // Last 2 tool results
+    context += `\nLast 2 Results:\n`;
     this.compressedContext.recentToolResults.forEach(tr => {
       const icon = tr.success ? '✓' : '✗';
       context += `${icon} ${tr.tool}: ${tr.summary}\n`;

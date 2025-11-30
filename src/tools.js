@@ -141,12 +141,18 @@ async function executeRead(args) {
     const filePath = path.resolve(args.file_path);
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.split('\n');
-    const numberedLines = lines.map((line, idx) => `${idx + 1}\t${line}`).join('\n');
+
+    // Support line limit to save tokens (default: first 50 lines only)
+    const lineLimit = args.limit || 50;
+    const limitedLines = lines.slice(0, lineLimit);
+    const numberedLines = limitedLines.map((line, idx) => `${idx + 1}\t${line}`).join('\n');
 
     return {
       success: true,
       content: numberedLines,
-      lineCount: lines.length
+      lineCount: lines.length,
+      limitedTo: limitedLines.length < lines.length ? lineLimit : null,
+      fullFileLines: lines.length
     };
   } catch (error) {
     return {
