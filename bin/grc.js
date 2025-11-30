@@ -105,23 +105,25 @@ program
       }
     }
 
-    console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-    console.log(chalk.cyan.bold('  🚀 GRC - Groq Code Assistant'));
-    console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+    console.log('\n' + chalk.cyan('╔═══════════════════════════════════════════════════════════╗'));
+    console.log(chalk.cyan('║') + chalk.bold.magenta('  ⚡ GRC') + chalk.bold.white(' - Groq Code Assistant                        ') + chalk.cyan('║'));
+    console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
+    console.log();
 
+    // Model info
     if (options.model === 'auto') {
-      console.log(chalk.gray('🤖 Model: Auto-select (adapts to task complexity)'));
+      console.log(chalk.gray('  🤖 Model: ') + chalk.white('Auto-select ') + chalk.gray('(adapts to task complexity)'));
     } else {
-      console.log(chalk.gray(`🤖 Model: ${options.model}`));
+      console.log(chalk.gray('  🤖 Model: ') + chalk.white(options.model));
     }
 
     if (options.experimental) {
-      console.log(chalk.yellow('🧪 Using experimental Llama 4 models'));
+      console.log(chalk.gray('  🧪 Mode: ') + chalk.yellow('Experimental Llama 4'));
     }
 
-    console.log(chalk.gray(`📁 Working directory: ${process.cwd()}`));
-    console.log(chalk.gray(`💾 Config: ${CONFIG_FILE}\n`));
-    console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+    console.log(chalk.gray('  📁 Directory: ') + chalk.white(process.cwd()));
+    console.log(chalk.gray('  💾 Config: ') + chalk.dim(CONFIG_FILE));
+    console.log('\n' + chalk.cyan('───────────────────────────────────────────────────────────') + '\n');
 
     await startChat(apiKey, options.model, {
       autoModel: options.autoModel,

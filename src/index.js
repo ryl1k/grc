@@ -103,8 +103,15 @@ async function startChat(apiKey, model, options = {}) {
   // Setup Ctrl+O handler for expanding tool outputs
   uiManager.setupExpandHandler(rl);
 
-  console.log(chalk.gray('Type your message. Use Ctrl+O then enter [#N] to expand tool details.'));
-  console.log(chalk.gray('Commands: "exit", "clear", "history", "load <session_id>"\n'));
+  console.log(chalk.gray('┌─ Getting Started ─────────────────────────────────────────┐'));
+  console.log(chalk.gray('│') + chalk.white(' Type your message and press Enter                        ') + chalk.gray('│'));
+  console.log(chalk.gray('│') + chalk.cyan(' Ctrl+O ') + chalk.white('then ') + chalk.cyan('[#N]') + chalk.white(' to expand tool details               ') + chalk.gray('│'));
+  console.log(chalk.gray('├─ Commands ────────────────────────────────────────────────┤'));
+  console.log(chalk.gray('│') + chalk.cyan(' exit      ') + chalk.white('- Exit GRC                                   ') + chalk.gray('│'));
+  console.log(chalk.gray('│') + chalk.cyan(' clear     ') + chalk.white('- Clear conversation context                ') + chalk.gray('│'));
+  console.log(chalk.gray('│') + chalk.cyan(' history   ') + chalk.white('- Show recent sessions                      ') + chalk.gray('│'));
+  console.log(chalk.gray('│') + chalk.cyan(' load <id> ') + chalk.white('- Load a previous session                   ') + chalk.gray('│'));
+  console.log(chalk.gray('└───────────────────────────────────────────────────────────┘\n'));
 
   console.log(chalk.gray(`Light Model (exploration): ${getModelInfo(lightModel).name}`));
   console.log(chalk.gray(`Heavy Model (summaries): ${getModelInfo(heavyModel).name}\n`));
@@ -208,15 +215,15 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
 
     // FIRST: Heavy model creates exploration plan (iteration 0 only)
     if (iterationCount === 0) {
-      spinner.text = '🔶 Heavy model planning...';
+      uiManager.showPhaseTransition('🔶 Planning Phase', 'Heavy model creating exploration strategy...');
+      spinner.text = 'Heavy model thinking...';
       const planningContext = contextManager.getContextForModel('heavy');
       const planPrompt = `${userMessage}\n\nCreate a brief exploration plan (2-3 sentences) for what files to explore.`;
       const planResponse = await heavyClient.chat(planPrompt, []);
       spinner.stop();
 
       if (planResponse.content) {
-        console.log(chalk.cyan('\n📋 Exploration Plan:'));
-        console.log(chalk.white(planResponse.content.substring(0, 300)));
+        console.log(chalk.gray('  📋 ') + chalk.white(planResponse.content.substring(0, 300)));
         console.log();
       }
     }
@@ -231,7 +238,8 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
       const modelContext = contextManager.getContextForModel(contextType);
 
       // Step 1: Model plans and decides
-      spinner.text = `${modelType} model thinking...`;
+      const iterationLabel = chalk.gray(`[${iterationCount + 1}/${maxIterations}]`);
+      spinner.text = `${modelType} model thinking... ${iterationLabel}`;
 
       // Light model gets compressed context, heavy gets full
       const prompt = useLightModel
@@ -281,7 +289,7 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
       const isFinalSummary = reasoningText.includes('## Summary') && toolCommands.length === 0;
 
       if (isFinalSummary && useLightModel) {
-        console.log(chalk.yellow('\n🔶 Switching to heavy model for summary...\n'));
+        uiManager.showPhaseTransition('🔶 Summary Phase', 'Generating comprehensive analysis with heavy model...');
         useLightModel = false;
         // Re-run this iteration with heavy model
         userMessage = 'Based on all the code you explored, provide a comprehensive summary with:\n- Project type and purpose\n- Key components and their roles\n- Architecture patterns\n- Notable issues or improvements needed';
@@ -303,20 +311,24 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
       if (toolCommands.length === 0) {
         // Only switch to heavy if we've done at least some exploration (iteration > 3)
         if (useLightModel && !taskComplete && iterationCount > 3) {
-          console.log(chalk.yellow('\n🔶 Switching to heavy model for final analysis...\n'));
+          uiManager.showPhaseTransition('🔶 Final Analysis', 'Switching to heavy model for comprehensive summary...');
           useLightModel = false;
           userMessage = 'Based on all the code you explored, provide a comprehensive summary with:\n- Project type and purpose\n- Key components and their roles\n- Architecture patterns\n- Notable issues or improvements needed';
           continue;
         }
 
         if (!taskComplete) {
-          console.log(chalk.blue('\nAssistant: ') + reasoningText + '\n');
+          console.log(chalk.blue('\n💬 Assistant: ') + reasoningText + '\n');
         }
         break;
       }
 
       // Step 2: Execute tools
       const toolResults = [];
+      if (toolCommands.length > 0) {
+        uiManager.startToolSection();
+      }
+
       for (const toolCmd of toolCommands) {
         const toolName = toolCmd.name;
         const toolArgs = { ...toolCmd };
@@ -351,9 +363,13 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
         }
       }
 
+      if (toolCommands.length > 0) {
+        uiManager.endToolSection();
+      }
+
       // Step 3: Check if we should stop (ask heavy model periodically)
       if (useLightModel && iterationCount > 0 && iterationCount % checkStopEveryN === 0) {
-        spinner = ora('🔶 Heavy model checking if we have enough context...').start();
+        spinner = ora('Heavy model evaluating progress...').start();
 
         const currentContext = contextManager.getCurrentContext();
         const stopCheckPrompt = `${currentContext}\n\nBased on the files we've explored so far, do we have enough information to create a comprehensive codebase summary?\n\nRespond with ONLY one word:\n- "STOP" if we have enough context\n- "CONTINUE" if we need to explore more files`;
@@ -364,11 +380,11 @@ async function processUserMessage(lightClient, heavyClient, userMessage, context
         const decision = stopCheckResponse.content.trim().toUpperCase();
 
         if (decision.includes('STOP')) {
-          console.log(chalk.yellow('\n🔶 Heavy model decided: enough context gathered. Creating summary...\n'));
+          uiManager.showCheckpoint('STOP', 'Sufficient context gathered. Switching to summary phase.');
           useLightModel = false; // Switch to heavy for final summary
           userMessage = `Based on all the files explored, create a comprehensive codebase summary with:\n- Project type and purpose\n- Architecture and key components\n- Notable patterns or issues\n\nThen say TASK COMPLETE.`;
         } else {
-          console.log(chalk.gray('🔹 Heavy model decided: continue exploring\n'));
+          uiManager.showCheckpoint('CONTINUE', 'Need more exploration. Continuing with light model.');
           // Continue with light model
           lightClient.clearHistory();
           lightClient.setSystemPrompt(LIGHT_MODEL_PROMPT);

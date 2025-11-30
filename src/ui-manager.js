@@ -15,11 +15,37 @@ class UIManager {
   showToolExecution(toolName, args, result, summary) {
     const sectionId = this.sectionCounter++;
 
-    // More compact tool output
+    // Enhanced tool output with better icons and formatting
+    const toolIcons = {
+      'Read': '📖',
+      'Write': '✍️',
+      'Bash': '⚡',
+      'Glob': '🔍',
+      'Grep': '🔎'
+    };
+
+    const icon = toolIcons[toolName] || '🔧';
+
     if (result.success) {
-      console.log(chalk.green(`  ✓ ${toolName}`) + chalk.gray(`: ${summary}`) + chalk.dim(` [#${sectionId}]`));
+      console.log(
+        chalk.gray('  │ ') +
+        chalk.green('✓') + ' ' +
+        icon + ' ' +
+        chalk.cyan(toolName) +
+        chalk.gray(' · ') +
+        chalk.white(summary) +
+        chalk.dim(` [#${sectionId}]`)
+      );
     } else {
-      console.log(chalk.red(`  ✗ ${toolName}`) + chalk.gray(`: ${result.error}`) + chalk.dim(` [#${sectionId}]`));
+      console.log(
+        chalk.gray('  │ ') +
+        chalk.red('✗') + ' ' +
+        icon + ' ' +
+        chalk.cyan(toolName) +
+        chalk.gray(' · ') +
+        chalk.red(result.error.substring(0, 60)) +
+        chalk.dim(` [#${sectionId}]`)
+      );
     }
 
     // Store full result for expansion
@@ -78,16 +104,25 @@ class UIManager {
       return;
     }
 
-    // For longer content, check if it's a summary
-    if (content.includes('## Summary') || content.includes('TASK COMPLETE')) {
-      console.log(chalk.cyan('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+    // For longer content, check if it's a summary or has markdown
+    if (content.includes('## Summary') || content.includes('TASK COMPLETE') ||
+        content.includes('## ') || content.includes('### ') ||
+        content.includes('**') || content.includes('- ')) {
+
+      // This is likely markdown - render it beautifully
+      console.log('\n' + chalk.cyan('┌─────────────────────────────────────────────────────────────┐'));
+      console.log(chalk.cyan('│') + chalk.bold.white('  📊 Summary                                                  ') + chalk.cyan('│'));
+      console.log(chalk.cyan('└─────────────────────────────────────────────────────────────┘'));
+      console.log();
+
       if (isMarkdown(content)) {
         const rendered = renderMarkdown(content);
         console.log(rendered);
       } else {
         console.log(chalk.white(content));
       }
-      console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+
+      console.log(chalk.cyan('─────────────────────────────────────────────────────────────\n'));
     } else {
       // Regular reasoning - show compactly
       console.log(chalk.gray(`→ ${content.trim()}`));
@@ -96,6 +131,39 @@ class UIManager {
 
   showProgress(message) {
     console.log(chalk.gray(`\n→ ${message}\n`));
+  }
+
+  showPhaseTransition(phase, description) {
+    // Visual separator for major phase changes
+    console.log('\n' + chalk.cyan('  ╭─────────────────────────────────────────────────────────╮'));
+    console.log(chalk.cyan('  │ ') + chalk.bold.magenta(phase.padEnd(55)) + chalk.cyan(' │'));
+    if (description) {
+      console.log(chalk.cyan('  │ ') + chalk.gray(description.padEnd(55)) + chalk.cyan(' │'));
+    }
+    console.log(chalk.cyan('  ╰─────────────────────────────────────────────────────────╯\n'));
+  }
+
+  showCheckpoint(decision, reason) {
+    // Show heavy model checkpoint decisions
+    const icon = decision === 'STOP' ? '🛑' : '▶️';
+    const color = decision === 'STOP' ? chalk.yellow : chalk.gray;
+
+    console.log(color('  ┌─ 🔶 Heavy Model Checkpoint ─────────────────────────'));
+    console.log(color(`  │ ${icon} Decision: ${decision}`));
+    if (reason) {
+      console.log(color(`  │ ${reason}`));
+    }
+    console.log(color('  └─────────────────────────────────────────────────────\n'));
+  }
+
+  startToolSection() {
+    // Mark the beginning of tool execution section
+    console.log(chalk.gray('  ╭─ Tool Execution'));
+  }
+
+  endToolSection() {
+    // Mark the end of tool execution section
+    console.log(chalk.gray('  ╰─────────────────\n'));
   }
 
   setupExpandHandler(rl) {
